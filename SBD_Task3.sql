@@ -98,34 +98,35 @@ COMMIT;
 SET TERMOUT ON
 PROMPT Demonstration table build is complete.
 
--- 1. Create a view listing all locations (Loc) 
--- along with the number of departments in that location 
--- and the number of employees employed in those departments.
+SELECT *
+FROM EMP;
 
+SELECT *
+FROM DEPT;
+
+SELECT *
+FROM BONUS;
+
+SELECT *
+FROM SALGRADE;
+
+SELECT *
+FROM DUMMY;
+
+-- 1
 CREATE VIEW loc_summary AS
 SELECT d.loc,
        COUNT(DISTINCT d.deptno) AS dept_count,
        COUNT(e.empno) AS emp_count
-FROM DEPT d
-LEFT JOIN EMP e
+FROM dept d
+LEFT JOIN emp e
   ON d.deptno = e.deptno
 GROUP BY d.loc;
 
--- support
-DROP VIEW loc_summary;
--- test
 SELECT *
 FROM loc_summary;
 
--- 2. Create a view where all data are collected concerning
--- the person who uses the view. The data should come from table Emp
--- and from the other tables Dept and Salgrade.
--- We assume that the user's identifier is available through the constant
--- user (see the result of the query: SELECT User FROM Dual;)
--- is the same as the value Ename. First create a row in table Emp with
--- your own identifier as Ename. Write SELECT statement which displays the
--- content of the created view.
-
+-- 2
 INSERT INTO EMP (EMPNO, ENAME, JOB, MGR, HIREDATE, SAL, COMM, DEPTNO)
 VALUES (8000, USER, 'CLERK', 7782, SYSDATE, 1300, NULL, 10);
 
@@ -150,3 +151,194 @@ WHERE e.ename = USER;
 
 SELECT *
 FROM person_use_view;
+
+-- 3
+CREATE VIEW my_tables_info AS
+SELECT t.table_name,
+       COUNT(c.column_name) AS column_count,
+       t.num_rows AS row_count
+FROM user_tables t
+JOIN user_tab_columns c
+  ON t.table_name = c.table_name
+GROUP BY t.table_name, t.num_rows;
+
+SELECT *
+FROM my_tables_info;
+
+-- 4
+-- Roles: Sales, Manager, Customer Service
+
+-- View for Sales
+-- required views: v_sales_products, v_sales_clients, v_sales_transactions
+CREATE VIEW v_sales_products AS
+SELECT p.product_id,
+       p.name,
+       p.price
+FROM products p;
+
+CREATE VIEW v_sales_clients AS
+SELECT c.client_id,
+       c.name,
+       c.surname,
+       c.address
+FROM clients c;
+
+CREATE VIEW v_sales_transactions AS
+SELECT s.sales_id,
+       s.client_id,
+       s.product_id,
+       s.quantity,
+       s.date,
+       s.emp_id
+FROM sales s;
+
+-- View for Manager
+-- required views: v_manager_employees, v_manager_sales_summary
+CREATE VIEW v_manager_employees AS
+SELECT e.emp_id,
+       e.name,
+       e.surname,
+       e.birth_date,
+       e.address,
+       em.start_date,
+       em.position,
+       em.end_date,
+       em.salary
+FROM employees e
+JOIN employment em
+  ON e.emp_id = em.emp_id;
+
+CREATE VIEW v_manager_sales_summary AS
+SELECT e.emp_id,
+       e.name,
+       e.surname,
+       p.product_id,
+       p.name AS product_name,
+       SUM(s.quantity) AS total_quantity_sold,
+       SUM(s.quantity * p.price) AS total_revenue
+FROM sales s
+JOIN employees e
+  ON s.emp_id = e.emp_id
+JOIN products p
+  ON s.product_id = p.product_id
+GROUP BY e.emp_id,
+         e.name,
+         e.surname,
+         p.product_id,
+         p.name;
+
+-- View for Customer Service
+-- required views: v_cs_client_orders
+CREATE VIEW v_cs_client_orders AS
+SELECT s.sales_id,
+       c.client_id,
+       c.name AS client_name,
+       c.surname AS client_surname,
+       p.product_id,
+       p.name AS product_name,
+       s.quantity,
+       s.date,
+       e.emp_id,
+       e.name AS employee_name,
+       e.surname AS employee_surname
+FROM sales s
+JOIN clients c
+  ON s.client_id = c.client_id
+JOIN products p
+  ON s.product_id = p.product_id
+JOIN employees e
+  ON s.emp_id = e.emp_id;
+
+-- 5
+-- The transaction should be executed at the SERIALIZABLE isolation level
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+
+SELECT available_seats
+FROM Flights
+WHERE flight_id = :flight_id;
+
+UPDATE Flights
+SET available_seats = available_seats - :requested_seats
+WHERE flight_id = :flight_id
+  AND available_seats >= :requested_seats;
+
+INSERT INTO Reservations (reservation_id, flight_id, customer_id, seats_reserved)
+VALUES (:reservation_id, :flight_id, :customer_id, :requested_seats);
+
+COMMIT;
+
+-- If there are not enough seats, execute:
+ROLLBACK;
+
+-- 6
+-- The transaction should be executed at the SERIALIZABLE isolation level
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+
+SELECT balance
+FROM Accounts
+WHERE account_no = :from_account;
+
+SELECT balance
+FROM Accounts
+WHERE account_no = :to_account;
+
+UPDATE Accounts
+SET balance = balance - :amount
+WHERE account_no = :from_account
+  AND balance >= :amount;
+
+UPDATE Accounts
+SET balance = balance + :amount
+WHERE account_no = :to_account;
+
+COMMIT;
+
+-- If one of the accounts does not exist or the balance is insufficient, execute:
+ROLLBACK;
+
+-- 7
+-- In a customer orders database, using table clusters can improve performance.
+-- Tables like Customers, Orders, and Order_Items are often joined using keys such as customer_id or order_id. 
+-- Clustering stores related rows together physically, reducing disk I/O and speeding up joins.
+-- However, clusters are not suitable if tables are rarely joined or if there are many insert operations.
+-- Therefore, clusters are useful in this case when queries frequently join these tables.
+
+-- 8
+CREATE TABLE customers (
+    customer_id NUMBER(6) PRIMARY KEY,
+    name        VARCHAR2(30) NOT NULL,
+    surname     VARCHAR2(30) NOT NULL,
+    address     VARCHAR2(100)
+);
+
+CREATE TABLE products (
+    product_id  NUMBER(6) PRIMARY KEY,
+    name        VARCHAR2(50) NOT NULL,
+    price       NUMBER(10,2) NOT NULL,
+    CONSTRAINT chk_product_price CHECK (price > 0)
+);
+
+CREATE TABLE orders (
+    order_id     NUMBER(6) PRIMARY KEY,
+    customer_id  NUMBER(6) NOT NULL,
+    order_date   DATE NOT NULL,
+    CONSTRAINT fk_orders_customer
+        FOREIGN KEY (customer_id)
+        REFERENCES customers(customer_id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE order_items (
+    order_id     NUMBER(6) NOT NULL,
+    product_id   NUMBER(6) NOT NULL,
+    quantity     NUMBER(6) NOT NULL,
+    CONSTRAINT pk_order_items PRIMARY KEY (order_id, product_id),
+    CONSTRAINT chk_order_items_quantity CHECK (quantity > 0),
+    CONSTRAINT fk_order_items_order
+        FOREIGN KEY (order_id)
+        REFERENCES orders(order_id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_order_items_product
+        FOREIGN KEY (product_id)
+        REFERENCES products(product_id)
+);
